@@ -394,5 +394,100 @@ namespace Octokit.GraphQL.UnitTests
 
 
         }
+        
+        /// <summary>
+        /// Tests that the <see cref="Mutation.CreateRepositoryRuleset"/> mutation skips serializing null values in the
+        /// <see cref="RuleParametersInput"/> class. When the null values in this class are sent to GitHub the call
+        /// fails.
+        /// </summary>
+        [Fact]
+        public void Repository_CreateRepositoryRuleset()
+        {
+          var expected = @"mutation {
+  createRepositoryRuleset(input:  {
+    clientMutationId: null,sourceId: ""hello world"",name: ""main"",target: BRANCH,rules: [ {
+      id: null,type: DELETION,parameters: null
+    }, {
+      id: null,type: PULL_REQUEST,parameters:  {
+        pullRequest:  {
+          dismissStaleReviewsOnPush: true,requireCodeOwnerReview: true,requireLastPushApproval: false,requiredApprovingReviewCount: 0,requiredReviewThreadResolution: false
+        }
+      }
+    }, {
+      id: null,type: REQUIRED_STATUS_CHECKS,parameters:  {
+        requiredStatusChecks:  {
+          requiredStatusChecks: [ {
+            context: ""ng test"",integrationId: null
+          }, {
+            context: ""ng lint"",integrationId: null
+          }],strictRequiredStatusChecksPolicy: true
+        }
+      }
+    }],conditions:  {
+      refName:  {
+        exclude: [],include: [""~DEFAULT_BRANCH""]
+      },repositoryName: null,repositoryId: null,repositoryProperty: null
+    },enforcement: ACTIVE,bypassActors: null
+  }) {
+    ruleset {
+      id
+    }
+  }
+}";
+
+          var expression = new Mutation()
+            .CreateRepositoryRuleset(new Arg<CreateRepositoryRulesetInput>(new CreateRepositoryRulesetInput
+            {
+              SourceId = new ID("hello world"),
+              Name = "main",
+              Enforcement = RuleEnforcement.Active,
+              Target = RepositoryRulesetTarget.Branch,
+              Rules = new[]
+              {
+                new RepositoryRuleInput {
+                  Type = RepositoryRuleType.Deletion
+                },
+                new RepositoryRuleInput {
+                  Type = RepositoryRuleType.PullRequest,
+                  Parameters = new RuleParametersInput {
+                    PullRequest = new PullRequestParametersInput {
+                      DismissStaleReviewsOnPush = true,
+                      RequireCodeOwnerReview = true
+                    }
+                  }
+                },
+                new RepositoryRuleInput {
+                  Type = RepositoryRuleType.RequiredStatusChecks,
+                  Parameters = new RuleParametersInput {
+                    RequiredStatusChecks = new RequiredStatusChecksParametersInput {
+                      RequiredStatusChecks = new[]
+                      {
+                        new StatusCheckConfigurationInput {
+                          Context = "ng test"
+                        },
+                        new StatusCheckConfigurationInput {
+                          Context = "ng lint"
+                        }
+                      },
+                      StrictRequiredStatusChecksPolicy = true
+                    }
+                  }
+                }
+              },
+              Conditions = new RepositoryRuleConditionsInput
+              {
+                RefName = new RefNameConditionTargetInput
+                {
+                  Include = new[] { "~DEFAULT_BRANCH" },
+                  Exclude = new string[] { }
+                }
+              }
+            }))
+            .Select(x => x.Ruleset.Id);
+
+          var query = expression.Compile();
+
+          Assert.Equal(expected, query.ToString(2), ignoreLineEndingDifferences: true);
+        }
     }
 }

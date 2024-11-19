@@ -12,7 +12,13 @@ namespace Octokit.GraphQL.Core.Serializers
 {
     public class QuerySerializer
     {
-        private static readonly ConcurrentDictionary<Type, Tuple<string, MethodInfo>[]> typeCache = new ConcurrentDictionary<Type, Tuple<string, MethodInfo>[]>();
+        /// <summary>
+        /// A cache of previously reflected types where:
+        /// Item1: The name of the type
+        /// Item2: The method info object to retrieve the value of the property.
+        /// Item3: A boolean indicating whether the value should always be serialized (true) or only serialized when not null (false)
+        /// </summary>
+        private static readonly ConcurrentDictionary<Type, Tuple<string, MethodInfo, bool>[]> typeCache = new ConcurrentDictionary<Type, Tuple<string, MethodInfo, bool>[]>();
 
         private readonly int indentation;
         private readonly string comma = ",";
@@ -232,12 +238,12 @@ namespace Octokit.GraphQL.Core.Serializers
             {
                 var objectType = value.GetType();
 
-                Tuple<string, MethodInfo>[] properties;
+                Tuple<string, MethodInfo, bool>[] properties;
                 if (!typeCache.TryGetValue(objectType, out properties))
                 {
                     properties = objectType.GetRuntimeProperties()
                         .Where(info => info.GetMethod.IsPublic)
-                        .Select(info => new Tuple<string, MethodInfo>(info.Name.LowerFirstCharacter(), info.GetMethod))
+                        .Select(info => new Tuple<string, MethodInfo, bool>(info.Name.LowerFirstCharacter(), info.GetMethod, null == info.GetCustomAttribute<SerializeIfNotNull>()))
                         .ToArray();
 
                     typeCache.TryAdd(objectType, properties);
@@ -247,12 +253,23 @@ namespace Octokit.GraphQL.Core.Serializers
                     //Cache Hit
                 }
 
+                var hasOpenBrace = false;
                 for (var index = 0; index < properties.Length; index++)
                 {
                     var property = properties[index];
+                    var valueObj = property.Item2.Invoke(value, null);
 
-                    if (index == 0)
+                    // Property 3 indicates if we should write the property when the value of the property is null.
+                    // True: always write the value
+                    // False: only write the value if it isn't null
+                    if (property.Item3 == false && null == valueObj)
                     {
+                        continue;
+                    }
+
+                    if (!hasOpenBrace)
+                    {
+                        hasOpenBrace = true;
                         OpenBrace(builder);
                     }
                     else
@@ -261,12 +278,12 @@ namespace Octokit.GraphQL.Core.Serializers
                     }
 
                     builder.Append(property.Item1.LowerFirstCharacter()).Append(colon);
-                    SerializeValue(builder, property.Item2.Invoke(value, null));
+                    SerializeValue(builder, valueObj);
+                }
 
-                    if (index + 1 == properties.Length)
-                    {
-                        CloseBrace(builder);
-                    }
+                if (hasOpenBrace)
+                {
+                    CloseBrace(builder);
                 }
             }
         }
